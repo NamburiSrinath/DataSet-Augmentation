@@ -1,0 +1,5 @@
+dog
+frog
+horse
+ship
+truck

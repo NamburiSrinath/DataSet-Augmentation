@@ -8,7 +8,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import random_split
+import matplotlib.pyplot as plt
 import math
+
 
 import random
 import logging
@@ -28,52 +30,48 @@ logging.basicConfig(filename='logs/prompting_log.log', format='%(asctime)s %(mes
 
 # ImageNet transformer
 transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((256, 256)),
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
 # Generated data transformer
 data_transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.RandAugment(magnitude=15),
+        transforms.Resize((256, 256)),
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
 batch_size = 32
 num_classes = 10
 
-classes = ('plane', 'car', 'bird', 'cat',
-           'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-label_list = ['plane', 'car', 'bird', 'cat',
+classes = ['airplane', 'automobile', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
-# train_set = datasets.ImageFolder(root='./train_images/', transform=data_transform)    
-train_set = datasets.ImageFolder(root='../Dreambooth-Stable-Diffusion/generated_images/', transform=data_transform)    
-trainset_size = math.ceil(len(train_set) * 0.85)
-trainset, traintestset = random_split(train_set, [math.ceil(len(train_set) * 0.85), math.floor(len(train_set) * 0.15)])  
+label_list = ['airplane', 'automobile', 'bird', 'cat',
+           'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
-                                          shuffle=True, num_workers=2, generator=g)
-traintestsetloader = torch.utils.data.DataLoader(traintestset, batch_size=batch_size,
-                                          shuffle=True, num_workers=2, generator=g)
+def train_validation_test_splits(train_folder, test_folder):
+    train_set = datasets.ImageFolder(root=train_folder, transform=transform)
+    trainset_size = math.ceil(len(train_set) * 0.85)
+    valset_size = len(train_set) - trainset_size
+    trainset, validationset = random_split(train_set, [trainset_size, valset_size])  
 
-logging.info('Train set: generated')
+    train_dataloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
+                                            shuffle=True, num_workers=2)
+    validation_dataloader = torch.utils.data.DataLoader(validationset, batch_size=batch_size,
+                                            shuffle=True, num_workers=2)
 
-testset = datasets.ImageFolder(root='/hdd2/srinath/Imge_net_images', transform=transform)
-# testset = torchvision.datasets.CIFAR10(root='CIFAR_10/original/images', train=False,
-#                                       download=True, transform=transform)
+    logging.info('Train set: generated')
+    testset = datasets.ImageFolder(root=test_folder, transform=transform)
+    print("TrainSet, Validation Set, Test Set ", len(trainset), len(validationset), len(testset))
+    print("Training data and test data ", train_folder, test_folder)
+    test_dataloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
+                                            shuffle=True, num_workers=2)
+    logging.info('Test set: ImageNet')
 
-print("TrainSet, Validation Set, Test Set ", len(trainset), len(traintestset), len(testset))
+    return train_dataloader, validation_dataloader, test_dataloader
 
-
-testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
-                                         shuffle=False, num_workers=2)
-logging.info('Test set: ImageNet')
-
-
-def train(net, train_loader):
+def train(net, train_loader, no_of_epochs):
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     net.to(device)
@@ -82,9 +80,10 @@ def train(net, train_loader):
     print(net.parameters())
     optimizer = optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
 
-    num_batches = trainset_size // batch_size
+    # num_batches = trainset_size // batch_size
+    num_batches = len(train_loader)
 
-    for epoch in range(10):  # loop over the dataset multiple times
+    for epoch in range(no_of_epochs):  # loop over the dataset multiple times
 
         correct = 0
         total = 0
@@ -124,12 +123,13 @@ def train(net, train_loader):
     print('Finished Training')
     logging.info('Finished Training')
 
-    now = datetime.now()
-    dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
-    PATH = './ImageNet_'+ str(len(train_set)) + dt_string + '.pth'
-    torch.save(net.state_dict(), PATH)
+    # Commented now as we don't need to save .pth files
+    # now = datetime.now()
+    # dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
+    # PATH = './ImageNet_'+ str(len(train_set)) + dt_string + '.pth'
+    # torch.save(net.state_dict(), PATH)
 
-def TEST(net, test_loader):
+def test(net, test_loader):
     correct = 0
     total = 0
 
@@ -169,16 +169,28 @@ def TEST(net, test_loader):
         print(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
         logging.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
 
-model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
+# Observe that all parameters are being optimized
+optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
+criterion = nn.CrossEntropyLoss()
 
-feature_extract = True
+
+no_of_epochs = 3
+
+# train_folder = '/hdd2/srinath/dataset_augmentation_diffusers/train_images/'
+train_folder = '/hdd2/srinath/Dreambooth-Stable-Diffusion/generated_images'
+test_folder = '/hdd2/srinath/Imge_net_images'
+
+train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(train_folder, test_folder)
+
 
 # We will just finetune (so won't pass gradient to back)
-def set_parameter_requires_grad(model, feature_extracting):
+def set_parameter_requires_grad(model, feature_extract):
     if feature_extracting:
         for param in model.parameters():
             param.requires_grad = False
-                   
+
+model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
+feature_extract = True                 
 set_parameter_requires_grad(model, feature_extract)
 model.fc = nn.Linear(512, num_classes)
 
@@ -198,16 +210,13 @@ else:
         if param.requires_grad == True:
             print("\t",name)
 
-# Observe that all parameters are being optimized
-optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
-criterion = nn.CrossEntropyLoss()
 
-train(model, trainloader)
+train(model, train_dataloader, no_of_epochs)
 
-print("Test on Generated Test set:")
-logging.info("Test on Generated test set:")
-TEST(model, traintestsetloader)
+print("Test on Validation data i.e :", train_folder)
+logging.info(f"Test on {train_folder} test set:")
+test(model, validation_dataloader)
 
-print("Test on ImageNet test set:")
-logging.info("Test on ImageNet test set:")
-TEST(model, testloader)
+print("Test on Test dataset i.e :", test_folder)
+logging.info(f"Test on {test_folder} test set:")
+test(model, test_dataloader)

@@ -28,19 +28,17 @@ g.manual_seed(0)
 # writer = SummaryWriter("../tensorboard_logs")
 
 no_of_epochs = 5
-final_dataset_length = 10000
+final_dataset_length = 7000
 train_val_ratio = 0.85
 batch_size = 512
 num_classes = 10
-proportion = 0
 pretrained = True
-tunable = True
+tunable = False
 if not os.path.exists("logs"):
     os.mkdir("logs")
-logging.basicConfig(filename=f'logs/test_custom/experiment_{no_of_epochs}epochs.log', format='%(asctime)s %(message)s', level=logging.INFO)
+logging.basicConfig(filename=f'logs/test_custom/experiment_{no_of_epochs}epochs_{batch_size}_p{pretrained}_t{tunable}.log', 
+                    format='%(asctime)s %(message)s', level=logging.INFO)
 
-logging.info("----------------------Experiment starts-----------------------------------------")
-logging.info(f'No of epochs: {no_of_epochs}, pretrained: {pretrained}, tunable: {tunable}, proportion: {proportion}')
 exp_state = f"e{no_of_epochs}_p{pretrained}_t{tunable}"
 
 classes = ['airplane', 'automobile', 'bird', 'cat',
@@ -49,18 +47,12 @@ classes = ['airplane', 'automobile', 'bird', 'cat',
 label_list = ['airplane', 'automobile', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
-train_folder = '/hdd2/srinath/Imge_net_images/'
-augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/train_images/'
-# augment_folder = '/hdd2/srinath/Dreambooth-Stable-Diffusion/generated_images'
-test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set/'
+train_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set_copy/'
+augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/train_images_copy/'
+test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set_testing/'
 
-logging.info(f'Train: {train_folder}, Augment: {augment_folder}, Test: {test_folder}')
-
-# train_folder = '/hdd2/srinath/Dreambooth-Stable-Diffusion/generated_images'
-# test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set/'
-
-# train_folder = '/hdd2/srinath/dataset_augmentation_diffusers/train_images/'
-# test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set/'
+logging.info(f'Train: {train_folder}, Augment: {augment_folder}')
+logging.info(f'Batch size: {batch_size}, No of epochs: {no_of_epochs}')
 
 # ImageNet transformer
 transform = transforms.Compose([
@@ -70,10 +62,16 @@ transform = transforms.Compose([
 
 # Generated data transformer
 training_data_transform = transforms.Compose([
-        transforms.RandAugment(magnitude=15),
+        transforms.RandAugment(num_ops=6, magnitude=15),
         transforms.Resize((256, 256)),
         transforms.ToTensor(),
     ])
+
+# Generated data transformer - Without RandAugment
+# training_data_transform = transforms.Compose([
+#         transforms.Resize((256, 256)),
+#         transforms.ToTensor(),
+#     ])
 
 def train_validation_test_splits(train_folder, test_folder, train_val_ratio, train_transform = transform):
     '''
@@ -149,11 +147,14 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
-def train(net, train_loader, no_of_epochs, criterion, optimizer):
+def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimizer):
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     net.to(device)
     num_batches = len(train_loader)
+    training_loss_list = []
+    training_accuracy_list = []
+    validation_accuracy_list = []
 
     for epoch in range(no_of_epochs):  # loop over the dataset multiple times
         correct = 0
@@ -181,22 +182,27 @@ def train(net, train_loader, no_of_epochs, criterion, optimizer):
             if i == (num_batches - 1):    # print at the end of batch
                 print(f'[Epoch: {epoch + 1}, Batch: {i + 1:5d}] loss: {running_loss / num_batches:.3f}')
                 logging.info(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / num_batches:.3f}')
+                training_loss_list.append(running_loss / num_batches)
                 running_loss = 0.0
                 _, predicted = torch.max(outputs.data.cuda(), 1)
                 total += labels.size(0)
                 correct += (predicted == labels.cuda()).sum().item()
                 print(f'Training Accuracy: {100 * correct // total} %')
                 logging.info(f'Training Accuracy: {100 * correct // total} %')
+                training_accuracy_list.append(100 * correct // total)
 
         print("------ Validation starts-----", train_folder)
         logging.info(f"Validation on {train_folder} test set:")
-        test(model, validation_dataloader)
+        validation_acc = test(net, validation_loader)
+        validation_accuracy_list.append(validation_acc)
 
 
     print('Finished Training')
     logging.info('Finished Training')
+    logging.info(f'Training accuracy list:  {training_accuracy_list}')
+    logging.info(f'Training loss list:  {training_loss_list}')
+    logging.info(f'Validation accuracy list:  {validation_accuracy_list}')
 
-    # Commented now as we don't need to save .pth files
     now = datetime.now()
     dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
     PATH = './logs/test_custom/ImageNet_'+  exp_state + dt_string + '.pth'
@@ -218,6 +224,7 @@ def test(net, test_loader):
 
     print(f'Accuracy of the network on the test images: {100 * correct // total} %')
     logging.info(f'Accuracy of the network on the test images: {100 * correct // total} %')
+
 
     # prepare to count predictions for each class
     correct_pred = {classname: 0 for classname in classes}
@@ -241,6 +248,31 @@ def test(net, test_loader):
         accuracy = 100 * float(correct_count) / total_pred[classname]
         print(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
         logging.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
+    return (100 * correct // total)
+
+
+# def dataset_fraction(train_folder, final_dataset_length):
+#     train_set = datasets.ImageFolder(root=train_folder, transform=training_data_transform)
+#     # Get unique class labels
+#     class_labels = set(train_set.targets)
+
+#     # No of images we need to take for each class (it should be same to avoid class imbalance)
+#     individual_class_length = int(final_dataset_length/len(class_labels))
+
+#     train_idx_final = []
+#     for i in class_labels:
+#         # Get the indices where the target labels are same as the class index and extend it to final list 
+#         train_idx = np.where(np.array(train_set.targets)==i)[0]
+#         train_idx_final.extend(random.choices(train_idx, k=individual_class_length))
+    
+#     print(f"Actual No of images from training data is {len(train_idx_final)}")
+#     print(f"Expected No of images from training data is {individual_class_length*len(class_labels)}")
+    
+#     logging.info(f"Actual No of images from training data is {len(train_idx_final)}")
+#     logging.info(f"Expected No of images from training data is {individual_class_length*len(class_labels)}")
+#     # Train and Augment subsets are nothing but taking these specific datapoints based on indices and concatenating them
+#     train_subset = Subset(train_set, train_idx_final)
+#     return train_set
 
 def dataset_mixing(train_folder, augment_folder, final_dataset_length, proportion):
     '''
@@ -299,8 +331,7 @@ def dataset_mixing(train_folder, augment_folder, final_dataset_length, proportio
     # Train and Augment subsets are nothing but taking these specific datapoints based on indices and concatenating them
     train_subset = Subset(train_set, train_idx_final)
     augment_subset = Subset(augment_set, augment_idx_final)
-    final_set = torch.utils.data.ConcatDataset([train_subset, augment_subset])
-    return final_set
+    return train_subset, augment_subset
 
 def verify_dataset_mixing(final_set):
     '''
@@ -313,37 +344,66 @@ def verify_dataset_mixing(final_set):
     print(class_dict)
 
 if __name__ == "__main__":
+    proportion_list = [0, 0.25, 0.5, 0.75, 1]
+    for proportion in (proportion_list):
+        logging.info("----------------------Experiment starts RandomAugment with N=6, magnitude=15-----------------------------------------")
+        logging.info(f'No of epochs: {no_of_epochs}, pretrained: {pretrained}, tunable: {tunable}, proportion: {proportion}')
+        train_subset, augment_subset = dataset_mixing(train_folder, augment_folder, final_dataset_length, proportion=proportion)
+        final_set = torch.utils.data.ConcatDataset([train_subset, augment_subset])
 
-    final_set = dataset_mixing(train_folder, augment_folder, final_dataset_length, proportion=proportion)
-    
-    # Optional function, uncomment to see the no of images for each class, will take sometime to execute
-    # verify_dataset_mixing(final_set)
+        # Optional function, uncomment to see the no of images for each class, will take sometime to execute
+        # verify_dataset_mixing(final_set)
 
-    # Note: Observe the change in first argument, we are passing final_set, not the train folder 
-    # as now we are mixing from different data folders. 
-    train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(final_set, test_folder, 
-                                                                              train_val_ratio, training_data_transform)
+        # Note: Observe the change in first argument, we are passing final_set, not the train folder 
+        # as now we are mixing from different data folders. 
+        train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(final_set, test_folder, 
+                                                                                train_val_ratio, training_data_transform)
 
-    # Uncomment the below code for previous version
+        # Uncomment the below code for previous version
 
-    # Get dataloaders
-    # train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(train_folder, test_folder, 
-    #                                                                           train_val_ratio, training_data_transform)
+        # Get dataloaders
+        # train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(train_folder, test_folder, 
+                                                                                #   train_val_ratio, training_data_transform)
 
-    # Get model
-    model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=pretrained)              
-    model = set_parameter_requires_grad(model, tunable)
-    model = model.to('cuda')
-    params_to_update, layers_update = verify_freeze(model)
-    print("No of layers backprop is going is :", len(layers_update))
+        # Get model
+        model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=pretrained)              
+        model = set_parameter_requires_grad(model, tunable)
+        model = model.to('cuda')
+        params_to_update, layers_update = verify_freeze(model)
+        print("No of layers backprop is going is :", len(layers_update))
 
-    # Initialize optimizer and loss function
-    optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
-    criterion = nn.CrossEntropyLoss()
+        # Initialize optimizer and loss function
+        optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
+        criterion = nn.CrossEntropyLoss()
 
-    # Train
-    train(model, train_dataloader, no_of_epochs, criterion, optimizer)
+        # Train
+        train(model, train_dataloader, validation_dataloader, no_of_epochs, criterion, optimizer)
 
-    print("------ Test starts-----", test_folder)
-    logging.info(f"Test on {test_folder} test set:")
-    test(model, test_dataloader)
+        print("------ Test starts-----", test_folder)
+        logging.info(f"Test on {test_folder} test set:")
+        test(model, test_dataloader)
+
+        # Uncomment this to understand the effect of adding augmented images to custom data. 
+        # Above loaders: 7k = (1-p)*custom data + p*augmented data
+        # Now: dataset length = (1-p)*custom data
+        logging.info("------------------Removing Augmented images experiment starts--------------")
+        train_dataloader2, validation_dataloader2, test_dataloader2 = train_validation_test_splits(train_subset, test_folder, 
+                                                                                train_val_ratio, training_data_transform)
+        
+        # Get model
+        model2 = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=pretrained)              
+        model2 = set_parameter_requires_grad(model2, tunable)
+        model2 = model2.to('cuda')
+        params_to_update2, layers_update2= verify_freeze(model2)
+        print("No of layers backprop is going is :", len(layers_update2))
+
+        # Initialize optimizer and loss function
+        optimizer2 = optim.SGD(params_to_update2, lr=0.001, momentum=0.9)
+        criterion2 = nn.CrossEntropyLoss()
+
+        # Train
+        train(model2, train_dataloader2, validation_dataloader2, no_of_epochs, criterion2, optimizer2)
+
+        print("------ Test starts-----", test_folder)
+        logging.info(f"Test on {test_folder} test set:")
+        test(model2, test_dataloader2)

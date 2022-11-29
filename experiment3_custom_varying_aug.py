@@ -27,20 +27,18 @@ g.manual_seed(0)
 
 # writer = SummaryWriter("../tensorboard_logs")
 
-no_of_epochs = 5
-final_dataset_length = 10000
+no_of_epochs = 200
+final_dataset_length = 7000
 train_val_ratio = 0.85
-batch_size = 512
+batch_size = 128
 num_classes = 10
-proportion = 0
-pretrained = True
+pretrained = False
 tunable = True
 if not os.path.exists("logs"):
     os.mkdir("logs")
-logging.basicConfig(filename=f'logs/test_custom/experiment_{no_of_epochs}epochs.log', format='%(asctime)s %(message)s', level=logging.INFO)
+logging.basicConfig(filename=f'logs/test_custom/experiment_{no_of_epochs}epochs_{batch_size}_p{pretrained}_t{tunable}.log', 
+                    format='%(asctime)s %(message)s', level=logging.INFO)
 
-logging.info("----------------------Experiment starts-----------------------------------------")
-logging.info(f'No of epochs: {no_of_epochs}, pretrained: {pretrained}, tunable: {tunable}, proportion: {proportion}')
 exp_state = f"e{no_of_epochs}_p{pretrained}_t{tunable}"
 
 classes = ['airplane', 'automobile', 'bird', 'cat',
@@ -49,18 +47,12 @@ classes = ['airplane', 'automobile', 'bird', 'cat',
 label_list = ['airplane', 'automobile', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
-train_folder = '/hdd2/srinath/Imge_net_images/'
-augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/train_images/'
-# augment_folder = '/hdd2/srinath/Dreambooth-Stable-Diffusion/generated_images'
-test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set/'
+train_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set_copy/'
+augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/train_images_copy/'
+test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set_testing/'
 
-logging.info(f'Train: {train_folder}, Augment: {augment_folder}, Test: {test_folder}')
-
-# train_folder = '/hdd2/srinath/Dreambooth-Stable-Diffusion/generated_images'
-# test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set/'
-
-# train_folder = '/hdd2/srinath/dataset_augmentation_diffusers/train_images/'
-# test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set/'
+logging.info(f'Train: {train_folder}, Augment: {augment_folder}')
+logging.info(f'Batch size: {batch_size}, No of epochs: {no_of_epochs}')
 
 # ImageNet transformer
 transform = transforms.Compose([
@@ -149,11 +141,14 @@ def accuracy(output, target, topk=(1,)):
             res.append(correct_k.mul_(100.0 / batch_size))
         return res
 
-def train(net, train_loader, no_of_epochs, criterion, optimizer):
+def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimizer):
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     net.to(device)
     num_batches = len(train_loader)
+    training_loss_list = []
+    training_accuracy_list = []
+    validation_accuracy_list = []
 
     for epoch in range(no_of_epochs):  # loop over the dataset multiple times
         correct = 0
@@ -181,22 +176,27 @@ def train(net, train_loader, no_of_epochs, criterion, optimizer):
             if i == (num_batches - 1):    # print at the end of batch
                 print(f'[Epoch: {epoch + 1}, Batch: {i + 1:5d}] loss: {running_loss / num_batches:.3f}')
                 logging.info(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / num_batches:.3f}')
+                training_loss_list.append(running_loss / num_batches)
                 running_loss = 0.0
                 _, predicted = torch.max(outputs.data.cuda(), 1)
                 total += labels.size(0)
                 correct += (predicted == labels.cuda()).sum().item()
                 print(f'Training Accuracy: {100 * correct // total} %')
                 logging.info(f'Training Accuracy: {100 * correct // total} %')
+                training_accuracy_list.append(100 * correct // total)
 
         print("------ Validation starts-----", train_folder)
         logging.info(f"Validation on {train_folder} test set:")
-        test(model, validation_dataloader)
+        validation_acc = test(net, validation_loader)
+        validation_accuracy_list.append(validation_acc)
 
 
     print('Finished Training')
     logging.info('Finished Training')
+    logging.info(f'Training accuracy list:  {training_accuracy_list}')
+    logging.info(f'Training loss list:  {training_loss_list}')
+    logging.info(f'Validation accuracy list:  {validation_accuracy_list}')
 
-    # Commented now as we don't need to save .pth files
     now = datetime.now()
     dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
     PATH = './logs/test_custom/ImageNet_'+  exp_state + dt_string + '.pth'
@@ -218,6 +218,7 @@ def test(net, test_loader):
 
     print(f'Accuracy of the network on the test images: {100 * correct // total} %')
     logging.info(f'Accuracy of the network on the test images: {100 * correct // total} %')
+
 
     # prepare to count predictions for each class
     correct_pred = {classname: 0 for classname in classes}
@@ -241,66 +242,84 @@ def test(net, test_loader):
         accuracy = 100 * float(correct_count) / total_pred[classname]
         print(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
         logging.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
+    return (100 * correct // total)
 
-def dataset_mixing(train_folder, augment_folder, final_dataset_length, proportion):
-    '''
-    Takes in the train_set and augment set and mixes in proportion such that
-    Eg: If final dataset length is 10k and proportion is 0.1
-        Individual class length - 1k
-        Images coming from Original dataset - 1k * (1-0.1) = 900 images
-        Images coming from Augmented dataset - 1k * 0.1 = 100 images
-
-    Note: proportion = 0 --> Entire Data is from original dataset
-          proportion = 1 ---> Entire Data is from augmented dataset
-    
-    Note: If original dataset has 100 images for a particular class but it was asked to get 900 images,
-          then these 100 images will be repeated 9 times (Refer random.choices documentation)
-
-    This function works only if both train set and augment set labels are same. Else it's working is unexpected
-    '''
-    train_set = datasets.ImageFolder(root=train_folder, transform=training_data_transform)
+def dataset_adding(augment_folder, augment_length):
+    augment_idx_final = []
     augment_set = datasets.ImageFolder(root=augment_folder, transform=training_data_transform)
 
     # Get unique class labels
-    class_labels = set(train_set.targets)
+    class_labels = set(augment_set.targets)
 
     # No of images we need to take for each class (it should be same to avoid class imbalance)
-    individual_class_length = final_dataset_length/len(class_labels)
+    individual_class_length = int(augment_length/len(class_labels))
 
-    # No of images from original dataset and augmented dataset
-    original_length, augmented_length = int((1-proportion)*individual_class_length), int(proportion*individual_class_length)
-    train_idx_final = []
-    augment_idx_final = []
     for i in class_labels:
-        # Get the indices where the target labels are same as the class index and extend it to final list 
-        train_idx = np.where(np.array(train_set.targets)==i)[0]
-        train_idx_final.extend(random.choices(train_idx, k=original_length))
-
         augment_idx = np.where(np.array(augment_set.targets)==i)[0]
-        augment_idx_final.extend(random.choices(augment_idx, k=augmented_length))
-        
-        # Uncomment to print and verify
-        # print("-----------Train Idx starts---------")
-        # print(train_idx)
-        # print("-----------Train Idx Final starts---------------------")
-        # print(train_idx_final)
-        # print("------- Augment Idx starts------------")
-        # print(augment_idx)
-        # print("-----------Augment Idx Final starts--------------------")
-        # print(augment_idx_final)
-        # print("-------------------")
-
-    # Lengths should match
-    print(f"Actual No of images from training data and augmented dataset are {len(train_idx_final)}, {len(augment_idx_final)}")
-    print(f"Expected No of images from training data and augmented dataset are {original_length*len(class_labels)}, {augmented_length*len(class_labels)}")
+        augment_idx_final.extend(random.choices(augment_idx, k=individual_class_length))
     
-    logging.info(f"Actual No of images from training data and augmented dataset are {len(train_idx_final)}, {len(augment_idx_final)}")
-    logging.info(f"Expected No of images from training data and augmented dataset are {original_length*len(class_labels)}, {augmented_length*len(class_labels)}")
-    # Train and Augment subsets are nothing but taking these specific datapoints based on indices and concatenating them
-    train_subset = Subset(train_set, train_idx_final)
     augment_subset = Subset(augment_set, augment_idx_final)
-    final_set = torch.utils.data.ConcatDataset([train_subset, augment_subset])
-    return final_set
+    return augment_subset
+
+
+# def dataset_mixing(train_folder, augment_folder, final_dataset_length, proportion):
+#     '''
+#     Takes in the train_set and augment set and mixes in proportion such that
+#     Eg: If final dataset length is 10k and proportion is 0.1
+#         Individual class length - 1k
+#         Images coming from Original dataset - 1k * (1-0.1) = 900 images
+#         Images coming from Augmented dataset - 1k * 0.1 = 100 images
+
+#     Note: proportion = 0 --> Entire Data is from original dataset
+#           proportion = 1 ---> Entire Data is from augmented dataset
+    
+#     Note: If original dataset has 100 images for a particular class but it was asked to get 900 images,
+#           then these 100 images will be repeated 9 times (Refer random.choices documentation)
+
+#     This function works only if both train set and augment set labels are same. Else it's working is unexpected
+#     '''
+#     train_set = datasets.ImageFolder(root=train_folder, transform=training_data_transform)
+#     augment_set = datasets.ImageFolder(root=augment_folder, transform=training_data_transform)
+
+#     # Get unique class labels
+#     class_labels = set(train_set.targets)
+
+#     # No of images we need to take for each class (it should be same to avoid class imbalance)
+#     individual_class_length = final_dataset_length/len(class_labels)
+
+#     # No of images from original dataset and augmented dataset
+#     original_length, augmented_length = int((1-proportion)*individual_class_length), int(proportion*individual_class_length)
+#     train_idx_final = []
+#     augment_idx_final = []
+#     for i in class_labels:
+#         # Get the indices where the target labels are same as the class index and extend it to final list 
+#         train_idx = np.where(np.array(train_set.targets)==i)[0]
+#         train_idx_final.extend(random.choices(train_idx, k=original_length))
+
+#         augment_idx = np.where(np.array(augment_set.targets)==i)[0]
+#         augment_idx_final.extend(random.choices(augment_idx, k=augmented_length))
+        
+#         # Uncomment to print and verify
+#         # print("-----------Train Idx starts---------")
+#         # print(train_idx)
+#         # print("-----------Train Idx Final starts---------------------")
+#         # print(train_idx_final)
+#         # print("------- Augment Idx starts------------")
+#         # print(augment_idx)
+#         # print("-----------Augment Idx Final starts--------------------")
+#         # print(augment_idx_final)
+#         # print("-------------------")
+
+#     # Lengths should match
+#     print(f"Actual No of images from training data and augmented dataset are {len(train_idx_final)}, {len(augment_idx_final)}")
+#     print(f"Expected No of images from training data and augmented dataset are {original_length*len(class_labels)}, {augmented_length*len(class_labels)}")
+    
+#     logging.info(f"Actual No of images from training data and augmented dataset are {len(train_idx_final)}, {len(augment_idx_final)}")
+#     logging.info(f"Expected No of images from training data and augmented dataset are {original_length*len(class_labels)}, {augmented_length*len(class_labels)}")
+#     # Train and Augment subsets are nothing but taking these specific datapoints based on indices and concatenating them
+#     train_subset = Subset(train_set, train_idx_final)
+#     augment_subset = Subset(augment_set, augment_idx_final)
+#     return train_subset, augment_subset
 
 def verify_dataset_mixing(final_set):
     '''
@@ -313,37 +332,38 @@ def verify_dataset_mixing(final_set):
     print(class_dict)
 
 if __name__ == "__main__":
+    augment_total_set = datasets.ImageFolder(root=augment_folder, transform=training_data_transform)
+    augment_set_length = len(augment_total_set)
+    for augment_length in range(0, augment_set_length, 1000):
+        logging.info("----------------------Experiment starts-----------------------------------------")
+        logging.info(f'No of epochs: {no_of_epochs}, pretrained: {pretrained}, tunable: {tunable}, Augment length: {augment_length}')
+        augment_subset = dataset_adding(augment_folder, augment_length)
+        train_subset = datasets.ImageFolder(root=train_folder, transform=training_data_transform)
+        logging.info(f'Training data: {len(train_subset)}, Augment data: {len(augment_subset)}')
+        final_set = torch.utils.data.ConcatDataset([train_subset, augment_subset])
 
-    final_set = dataset_mixing(train_folder, augment_folder, final_dataset_length, proportion=proportion)
-    
-    # Optional function, uncomment to see the no of images for each class, will take sometime to execute
-    # verify_dataset_mixing(final_set)
+        # Optional function, uncomment to see the no of images for each class, will take sometime to execute
+        # verify_dataset_mixing(final_set)
 
-    # Note: Observe the change in first argument, we are passing final_set, not the train folder 
-    # as now we are mixing from different data folders. 
-    train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(final_set, test_folder, 
-                                                                              train_val_ratio, training_data_transform)
+        # Note: Observe the change in first argument, we are passing final_set, not the train folder 
+        # as now we are mixing from different data folders. 
+        train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(final_set, test_folder, 
+                                                                                train_val_ratio, training_data_transform)
 
-    # Uncomment the below code for previous version
+        # Get model
+        model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=pretrained)              
+        model = set_parameter_requires_grad(model, tunable)
+        model = model.to('cuda')
+        params_to_update, layers_update = verify_freeze(model)
+        print("No of layers backprop is going is :", len(layers_update))
 
-    # Get dataloaders
-    # train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(train_folder, test_folder, 
-    #                                                                           train_val_ratio, training_data_transform)
+        # Initialize optimizer and loss function
+        optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
+        criterion = nn.CrossEntropyLoss()
 
-    # Get model
-    model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=pretrained)              
-    model = set_parameter_requires_grad(model, tunable)
-    model = model.to('cuda')
-    params_to_update, layers_update = verify_freeze(model)
-    print("No of layers backprop is going is :", len(layers_update))
+        # Train
+        train(model, train_dataloader, validation_dataloader, no_of_epochs, criterion, optimizer)
 
-    # Initialize optimizer and loss function
-    optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
-    criterion = nn.CrossEntropyLoss()
-
-    # Train
-    train(model, train_dataloader, no_of_epochs, criterion, optimizer)
-
-    print("------ Test starts-----", test_folder)
-    logging.info(f"Test on {test_folder} test set:")
-    test(model, test_dataloader)
+        print("------ Test starts-----", test_folder)
+        logging.info(f"Test on {test_folder} test set:")
+        test(model, test_dataloader)

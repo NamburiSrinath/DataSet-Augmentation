@@ -60,18 +60,18 @@ transform = transforms.Compose([
         transforms.ToTensor(),
     ])
 
-# Generated data transformer
-training_data_transform = transforms.Compose([
-        transforms.RandAugment(num_ops=6, magnitude=15),
-        transforms.Resize((256, 256)),
-        transforms.ToTensor(),
-    ])
-
-# Generated data transformer - Without RandAugment
+# Generated data transformer - With RandAugment
 # training_data_transform = transforms.Compose([
+#         transforms.RandAugment(num_ops=6, magnitude=15),
 #         transforms.Resize((256, 256)),
 #         transforms.ToTensor(),
 #     ])
+
+# Generated data transformer - Without RandAugment
+training_data_transform = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+    ])
 
 def train_validation_test_splits(train_folder, test_folder, train_val_ratio, train_transform = transform):
     '''
@@ -155,6 +155,7 @@ def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimiz
     training_loss_list = []
     training_accuracy_list = []
     validation_accuracy_list = []
+    validation_loss_list = []
 
     for epoch in range(no_of_epochs):  # loop over the dataset multiple times
         correct = 0
@@ -193,8 +194,12 @@ def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimiz
 
         print("------ Validation starts-----", train_folder)
         logging.info(f"Validation on {train_folder} test set:")
-        validation_acc = test(net, validation_loader)
+        validation_acc, validation_loss = validate(net, validation_loader)
         validation_accuracy_list.append(validation_acc)
+        validation_loss_list.append(validation_loss)
+        if validation_loss < best_validation_loss:
+            best_validation_loss = validation_loss
+            torch.save(net.state_dict(), 'best_model_{exp_state}.pth')
 
 
     print('Finished Training')
@@ -202,11 +207,61 @@ def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimiz
     logging.info(f'Training accuracy list:  {training_accuracy_list}')
     logging.info(f'Training loss list:  {training_loss_list}')
     logging.info(f'Validation accuracy list:  {validation_accuracy_list}')
+    logging.info(f'Validation loss list:  {validation_loss_list}')
 
     now = datetime.now()
     dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
     PATH = './logs/test_custom/ImageNet_'+  exp_state + dt_string + '.pth'
     torch.save(net.state_dict(), PATH)
+
+
+
+
+def validate(net, validate_loader):
+    correct = 0
+    total = 0
+    valid_loss = 0
+    net.eval()
+    with torch.no_grad():
+        for data in validate_loader:
+            images, labels = data
+            # calculate outputs by running images through the network
+            outputs = net(images.cuda())
+            valid_loss += loss.item()
+            # the class with the highest energy is what we choose as prediction
+            _, predicted = torch.max(outputs.data.cuda(), 1)
+            total += labels.size(0)
+            correct += (predicted == labels.cuda()).sum().item()
+
+    validation_loss = valid_loss/len(validate_loader)
+    print(f'Accuracy of the network on the validation images: {100 * correct // total} %')
+    logging.info(f'Accuracy of the network on the validation images: {100 * correct // total} %')
+    logging.info(f'Accuracy of the network on the validation images: {validation_loss}')
+
+
+    # prepare to count predictions for each class
+    correct_pred = {classname: 0 for classname in classes}
+    total_pred = {classname: 0 for classname in classes}
+
+    # again no gradients needed
+    with torch.no_grad():
+        for data in validate_loader:
+            images, labels = data
+            outputs = net(images.cuda())
+            _, predictions = torch.max(outputs.cuda(), 1)
+            # collect the correct predictions for each class
+            for label, prediction in zip(labels, predictions):
+                if label.cuda() == prediction:
+                    correct_pred[classes[label]] += 1
+                total_pred[classes[label]] += 1
+
+    # print accuracy for each class
+    for classname, correct_count in correct_pred.items():
+        accuracy = 100 * float(correct_count) / total_pred[classname]
+        print(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
+        logging.info(f'Accuracy for class: {classname:5s} is {accuracy:.1f} %')
+    return (100 * correct // total, validation_loss)
+
 
 def test(net, test_loader):
     correct = 0
@@ -286,7 +341,7 @@ def dataset_mixing(train_folder, augment_folder, final_dataset_length, proportio
           proportion = 1 ---> Entire Data is from augmented dataset
     
     Note: If original dataset has 100 images for a particular class but it was asked to get 900 images,
-          then these 100 images will be repeated 9 times (Refer random.choices documentation)
+          we will get only 100 images. Avoided repeting the same examples multiple times to avoid overfitting.
 
     This function works only if both train set and augment set labels are same. Else it's working is unexpected
     '''
@@ -306,10 +361,12 @@ def dataset_mixing(train_folder, augment_folder, final_dataset_length, proportio
     for i in class_labels:
         # Get the indices where the target labels are same as the class index and extend it to final list 
         train_idx = np.where(np.array(train_set.targets)==i)[0]
-        train_idx_final.extend(random.choices(train_idx, k=original_length))
+        no_of_train_samples = min(original_length, len(train_idx))
+        train_idx_final.extend(random.choices(train_idx, k=no_of_train_samples))
 
         augment_idx = np.where(np.array(augment_set.targets)==i)[0]
-        augment_idx_final.extend(random.choices(augment_idx, k=augmented_length))
+        no_of_augment_samples = min(augmented_length, len(augment_idx))
+        augment_idx_final.extend(random.choices(augment_idx, k=no_of_augment_samples))
         
         # Uncomment to print and verify
         # print("-----------Train Idx starts---------")

@@ -39,6 +39,7 @@ if not os.path.exists("logs"):
 logging.basicConfig(filename=f'logs/test_custom/experiment_{no_of_epochs}epochs_{batch_size}_p{pretrained}_t{tunable}.log', 
                     format='%(asctime)s %(message)s', level=logging.INFO)
 
+logging.info("------------------New Run---------------------------------------")
 exp_state = f"e{no_of_epochs}_p{pretrained}_t{tunable}"
 
 classes = ['airplane', 'automobile', 'bird', 'cat',
@@ -156,6 +157,7 @@ def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimiz
     training_accuracy_list = []
     validation_accuracy_list = []
     validation_loss_list = []
+    best_validation_loss = 0
 
     for epoch in range(no_of_epochs):  # loop over the dataset multiple times
         correct = 0
@@ -194,12 +196,13 @@ def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimiz
 
         print("------ Validation starts-----", train_folder)
         logging.info(f"Validation on {train_folder} test set:")
-        validation_acc, validation_loss = validate(net, validation_loader)
+        validation_acc, validation_loss = validate(net, validation_loader, criterion)
         validation_accuracy_list.append(validation_acc)
         validation_loss_list.append(validation_loss)
-        if validation_loss < best_validation_loss:
+        if best_validation_loss == 0 or validation_loss < best_validation_loss:
             best_validation_loss = validation_loss
             torch.save(net.state_dict(), 'best_model_{exp_state}.pth')
+            print(f"New best model at {epoch}")
 
 
     print('Finished Training')
@@ -217,16 +220,21 @@ def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimiz
 
 
 
-def validate(net, validate_loader):
+def validate(net, validate_loader, criterion):
     correct = 0
     total = 0
     valid_loss = 0
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    net.to(device)
     net.eval()
     with torch.no_grad():
         for data in validate_loader:
-            images, labels = data
+            images, labels = data[0].to(device), data[1].to(device)
             # calculate outputs by running images through the network
             outputs = net(images.cuda())
+
+            loss = criterion(outputs, labels)
+
             valid_loss += loss.item()
             # the class with the highest energy is what we choose as prediction
             _, predicted = torch.max(outputs.data.cuda(), 1)

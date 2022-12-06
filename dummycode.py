@@ -27,7 +27,7 @@ g.manual_seed(0)
 
 # writer = SummaryWriter("../tensorboard_logs")
 
-no_of_epochs = 5
+no_of_epochs = 3
 final_dataset_length = 7000
 train_val_ratio = 0.85
 batch_size = 512
@@ -201,8 +201,10 @@ def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimiz
         validation_loss_list.append(validation_loss)
         if best_validation_loss == 0 or validation_loss < best_validation_loss:
             best_validation_loss = validation_loss
-            torch.save(net.state_dict(), 'best_model_{exp_state}.pth')
+            best_model = net
+            torch.save(net.state_dict(), f'best_model_{exp_state}.pth')
             print(f"New best model at {epoch}")
+            logging.info(f"New best model at {epoch}")
 
 
     print('Finished Training')
@@ -216,6 +218,7 @@ def train(net, train_loader, validation_loader, no_of_epochs, criterion, optimiz
     dt_string = now.strftime("%d_%m_%Y_%H_%M_%S")
     PATH = './logs/test_custom/ImageNet_'+  exp_state + dt_string + '.pth'
     torch.save(net.state_dict(), PATH)
+    return best_model
 
 
 
@@ -442,11 +445,11 @@ if __name__ == "__main__":
         criterion = nn.CrossEntropyLoss()
 
         # Train
-        train(model, train_dataloader, validation_dataloader, no_of_epochs, criterion, optimizer)
+        best_model = train(model, train_dataloader, validation_dataloader, no_of_epochs, criterion, optimizer)
 
         print("------ Test starts-----", test_folder)
         logging.info(f"Test on {test_folder} test set:")
-        test(model, test_dataloader)
+        test(best_model, test_dataloader)
 
         # Uncomment this to understand the effect of adding augmented images to custom data. 
         # Above loaders: 7k = (1-p)*custom data + p*augmented data
@@ -467,8 +470,8 @@ if __name__ == "__main__":
         criterion2 = nn.CrossEntropyLoss()
 
         # Train
-        train(model2, train_dataloader2, validation_dataloader2, no_of_epochs, criterion2, optimizer2)
+        best_model2 = train(model2, train_dataloader2, validation_dataloader2, no_of_epochs, criterion2, optimizer2)
 
         print("------ Test starts-----", test_folder)
         logging.info(f"Test on {test_folder} test set:")
-        test(model2, test_dataloader2)
+        test(best_model2, test_dataloader2)

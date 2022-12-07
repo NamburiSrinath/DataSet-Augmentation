@@ -30,11 +30,11 @@ g.manual_seed(0)
 no_of_epochs = 200
 final_dataset_length = 7000
 train_val_ratio = 0.85
-batch_size = 512
+batch_size = 256
 num_classes = 10
 pretrained = False
 tunable = True
-dataset = "Dreambooth"
+dataset = "Vanilla SD"
 if not os.path.exists("logs"):
     os.mkdir("logs")
 logging.basicConfig(filename=f'logs/test_custom/experiment_{no_of_epochs}epochs_{batch_size}_p{pretrained}_t{tunable}_d{dataset}.log', 
@@ -51,10 +51,10 @@ label_list = ['airplane', 'automobile', 'bird', 'cat',
 train_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set_train/'
 
 # Vanilla SD
-# augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/vanilla_SD_generated_images/'
+augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/vanilla_SD_generated_images/'
 
 # Dreambooth
-augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/dreambooth_generated_images/'
+# augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/dreambooth_generated_images/'
 
 test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set_testing/'
 

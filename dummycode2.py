@@ -27,14 +27,14 @@ g.manual_seed(0)
 
 # writer = SummaryWriter("../tensorboard_logs")
 
-no_of_epochs = 200
+no_of_epochs = 20
 final_dataset_length = 7000
 train_val_ratio = 0.85
-batch_size = 256
+batch_size = 512
 num_classes = 10
-pretrained = False
-tunable = True
-dataset = "Vanilla SD"
+pretrained = True
+tunable = False
+dataset = "DreamBooth"
 if not os.path.exists("logs"):
     os.mkdir("logs")
 logging.basicConfig(filename=f'logs/test_custom/experiment_{no_of_epochs}epochs_{batch_size}_p{pretrained}_t{tunable}_d{dataset}.log', 
@@ -51,10 +51,13 @@ label_list = ['airplane', 'automobile', 'bird', 'cat',
 train_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set_train/'
 
 # Vanilla SD
-augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/vanilla_SD_generated_images/'
+# augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/vanilla_SD_generated_images/'
 
 # Dreambooth
-# augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/dreambooth_generated_images/'
+augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/dreambooth_generated_images/'
+
+# Textual Inversion
+# augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/text_inv_generated_images/'
 
 test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set_testing/'
 
@@ -435,12 +438,6 @@ if __name__ == "__main__":
         train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(final_set, test_folder, 
                                                                                 train_val_ratio, training_data_transform)
 
-        # Uncomment the below code for previous version
-
-        # Get dataloaders
-        # train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(train_folder, test_folder, 
-                                                                                #   train_val_ratio, training_data_transform)
-
         # Get model
         model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=pretrained)              
         model = set_parameter_requires_grad(model, tunable)
@@ -463,26 +460,26 @@ if __name__ == "__main__":
         # Uncomment this to understand the effect of adding augmented images to custom data. 
         # Above loaders: 7k = (1-p)*custom data + p*augmented data
         # Now: dataset length = (1-p)*custom data
-        if proportion != 0:
-            logging.info("------------------Removing Augmented images experiment starts--------------")
-            train_dataloader2, validation_dataloader2, test_dataloader2 = train_validation_test_splits(train_subset, test_folder, 
-                                                                                    train_val_ratio, training_data_transform)
+        # if proportion != 0:
+        #     logging.info("------------------Removing Augmented images experiment starts--------------")
+        #     train_dataloader2, validation_dataloader2, test_dataloader2 = train_validation_test_splits(train_subset, test_folder, 
+        #                                                                             train_val_ratio, training_data_transform)
             
-            # Get model
-            model2 = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=pretrained)              
-            model2 = set_parameter_requires_grad(model2, tunable)
-            model2 = model2.to('cuda')
-            params_to_update2, layers_update2= verify_freeze(model2)
-            print("No of layers backprop is going is :", len(layers_update2))
+        #     # Get model
+        #     model2 = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=pretrained)              
+        #     model2 = set_parameter_requires_grad(model2, tunable)
+        #     model2 = model2.to('cuda')
+        #     params_to_update2, layers_update2= verify_freeze(model2)
+        #     print("No of layers backprop is going is :", len(layers_update2))
 
-            # Initialize optimizer and loss function
-            # optimizer2 = optim.Adam(params_to_update2, lr=0.001)
-            optimizer2 = optim.SGD(params_to_update2, lr=0.001, momentum=0.9)
-            criterion2 = nn.CrossEntropyLoss()
+        #     # Initialize optimizer and loss function
+        #     # optimizer2 = optim.Adam(params_to_update2, lr=0.001)
+        #     optimizer2 = optim.SGD(params_to_update2, lr=0.001, momentum=0.9)
+        #     criterion2 = nn.CrossEntropyLoss()
 
-            # Train
-            best_model2 = train(model2, train_dataloader2, validation_dataloader2, no_of_epochs, criterion2, optimizer2, exp_state)
+        #     # Train
+        #     best_model2 = train(model2, train_dataloader2, validation_dataloader2, no_of_epochs, criterion2, optimizer2, exp_state)
 
-            print("------ Test starts-----", test_folder)
-            logging.info(f"Test on {test_folder} test set:")
-            test(best_model2, test_dataloader2)
+        #     print("------ Test starts-----", test_folder)
+        #     logging.info(f"Test on {test_folder} test set:")
+        #     test(best_model2, test_dataloader2)

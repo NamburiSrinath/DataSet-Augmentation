@@ -27,17 +27,20 @@ g.manual_seed(0)
 
 # writer = SummaryWriter("../tensorboard_logs")
 
-no_of_epochs = 5
+no_of_epochs = 300
 final_dataset_length = 10000
-train_val_ratio = 0.85
+train_ratio = 0.50
+test_ratio = 0.20
+val_ratio = 1 - train_ratio - test_ratio
+print(f'{train_ratio = }, {val_ratio = }, {test_ratio = }')
 batch_size = 512
 num_classes = 10
 proportion = 0
-pretrained = True
+pretrained = False
 tunable = True
 if not os.path.exists("logs"):
     os.mkdir("logs")
-logging.basicConfig(filename=f'logs/test_custom/experiment_{no_of_epochs}epochs.log', format='%(asctime)s %(message)s', level=logging.INFO)
+logging.basicConfig(filename=f'logs/tests/test_custom/experiment_{no_of_epochs}epochs.log', format='%(asctime)s %(message)s', level=logging.INFO)
 
 logging.info("----------------------Experiment starts-----------------------------------------")
 logging.info(f'No of epochs: {no_of_epochs}, pretrained: {pretrained}, tunable: {tunable}, proportion: {proportion}')
@@ -49,7 +52,7 @@ classes = ['airplane', 'automobile', 'bird', 'cat',
 label_list = ['airplane', 'automobile', 'bird', 'cat',
            'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
-train_folder = '/hdd2/srinath/Imge_net_images/'
+train_folder = '/hdd2/srinath/srinath/dataset_augmentation_diffusers/custom_test_set/'
 augment_folder = '/hdd2/srinath/dataset_augmentation_diffusers/train_images/'
 # augment_folder = '/hdd2/srinath/Dreambooth-Stable-Diffusion/generated_images'
 test_folder = '/hdd2/srinath/dataset_augmentation_diffusers/custom_test_set/'
@@ -87,7 +90,7 @@ def train_validation_test_splits(train_folder, test_folder, train_val_ratio, tra
     # train_set = datasets.ImageFolder(root=train_folder, transform=train_transform)
     trainset_size = math.ceil(len(train_set) * train_val_ratio)
     valset_size = len(train_set) - trainset_size
-    trainset, validationset = random_split(train_set, [trainset_size, valset_size])  
+    trainset, validationset, testset = random_split(train_set, [trainset_size, valset_size, testset_size])  
 
     train_dataloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
                                             shuffle=True, num_workers=2)
@@ -321,8 +324,7 @@ if __name__ == "__main__":
 
     # Note: Observe the change in first argument, we are passing final_set, not the train folder 
     # as now we are mixing from different data folders. 
-    train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(final_set, test_folder, 
-                                                                              train_val_ratio, training_data_transform)
+    train_dataloader, validation_dataloader, test_dataloader = train_validation_test_splits(final_set, test_folder, train_ratio, val_ratio, test_ratio, training_data_transform)
 
     # Uncomment the below code for previous version
 
@@ -338,7 +340,8 @@ if __name__ == "__main__":
     print("No of layers backprop is going is :", len(layers_update))
 
     # Initialize optimizer and loss function
-    optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
+    # optimizer = optim.SGD(params_to_update, lr=0.001, momentum=0.9)
+    optimizer = optim.adam(params_to_update, lr=0.01)
     criterion = nn.CrossEntropyLoss()
 
     # Train

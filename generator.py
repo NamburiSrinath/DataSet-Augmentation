@@ -35,16 +35,17 @@ if __name__ == "__main__":
     
     pipe.safety_checker = dummy
 
-    CLASS_NAMES = ['plane', 'car', 'bird', 'cat', 'deer']
+    CLASS_NAMES = ['airplane', 'automobile', 'bird', 'cat', 'deer']
 
     prompts = []
 
-    fr = open('prompts.txt','r')
+    fr = open('gpt_3_prompts1.txt','r')
     for fl in fr:
-        prompts += fl.strip().split(',')
+        prompts += fl.strip().split('\n')
 
-    print(prompts)
-    n_predictions = 6000
+    # print(prompts)
+    # print(len(prompts))
+    n_predictions = 1200
 
     # if not os.path.exists("CIFAR_10/synthetic"):
     #     os.mkdir("CIFAR_10/synthetic")
@@ -56,15 +57,16 @@ if __name__ == "__main__":
     #     if not os.path.exists("CIFAR_10/synthetic/images/" + tmp):
     #         os.mkdir("CIFAR_10/synthetic/images/" + tmp)
 
-    if not os.path.exists("./images_gen"):
-        os.mkdir("./images_gen")
+    if not os.path.exists("./images_gen_gpt3_prompts"):
+        os.mkdir("./images_gen_gpt3_prompts")
     for tmp in CLASS_NAMES:
-        if not os.path.exists("./images_gen/" + tmp):
-            os.mkdir("./images_gen/"+ tmp)
+        if not os.path.exists("./images_gen_gpt3_prompts/" + tmp):
+            os.mkdir("./images_gen_gpt3_prompts/"+ tmp)
 
     for i in range(n_predictions):
-        for prompt_indx, prompt in enumerate(prompts):
-            print(prompt)
+        for prompt_index, prompt in enumerate(prompts):
+            prompt_indx = prompt_index//5
+            # print(prompt, prompt_indx, CLASS_NAMES[prompt_indx])
 
             with autocast("cuda"):
                 image = pipe(prompt, height=512, width=512)["sample"][0]  
@@ -78,7 +80,7 @@ if __name__ == "__main__":
 
             # image.save("generated_images_prompting/images/" + CLASS_NAMES[i] + "/" + img_name)
             # image.save("CIFAR_10/synthetic/images/" + CLASS_NAMES[prompt_indx] + "/" + img_name)
-            image.save("./images_gen/" + CLASS_NAMES[prompt_indx] + "/" + img_name)
+            image.save("./images_gen_gpt3_prompts/" + CLASS_NAMES[prompt_indx] + "/" + img_name)
 
         if i % 10 == 0:
             print(str(i) + " completed")
